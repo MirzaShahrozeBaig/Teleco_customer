@@ -1,88 +1,72 @@
 import streamlit as st
 import numpy as np
 import pandas as pd
-import joblib
+import pickle
 
-# Load model, scaler, and feature columns
-model = joblib.load("churn_model.pkl")
-scaler = joblib.load("scaler.pkl")
-model_columns = joblib.load("model_columns.pkl") # Load the column names
+# Load model & scaler
+model = pickle.load(open('churn_model.pkl', 'rb'))
+scaler = pickle.load(open('scaler.pkl', 'rb'))
 
-st.set_page_config(page_title="Telecom Churn Prediction")
+# Load training column structure
+columns = pickle.load(open('df.pkl', 'rb')).columns
+
+st.set_page_config(page_title="Telecom Churn Predictor", layout="wide")
 
 st.title("📡 Telecom Customer Churn Prediction System")
-st.markdown("Predict customer churn using Machine Learning")
+st.write("Predict customer churn using Machine Learning")
 
-st.sidebar.header("Customer Details")
+# ---------------- USER INPUTS ----------------
+gender = st.selectbox("Gender", ["Male", "Female"])
+SeniorCitizen = st.selectbox("Senior Citizen", ["Yes", "No"])
+Partner = st.selectbox("Partner", ["Yes", "No"])
+Dependents = st.selectbox("Dependents", ["Yes", "No"])
+tenure = st.slider("Tenure (months)", 0, 72, 12)
+MonthlyCharges = st.slider("Monthly Charges", 0, 150, 70)
+TotalCharges = st.slider("Total Charges", 0, 10000, 1500)
+InternetService = st.selectbox("Internet Service", ["DSL", "Fiber optic", "No"])
+Contract = st.selectbox("Contract", ["Month-to-month", "One year", "Two year"])
+PaymentMethod = st.selectbox("Payment Method", 
+    ["Electronic check", "Mailed check", "Bank transfer (automatic)", "Credit card (automatic)"])
 
-gender = st.sidebar.selectbox("Gender", ["Male", "Female"])
-senior = st.sidebar.selectbox("Senior Citizen", ["No", "Yes"])
-partner = st.sidebar.selectbox("Partner", ["No", "Yes"])
-dependents = st.sidebar.selectbox("Dependents", ["No", "Yes"])
+# ---------------- ENCODING ----------------
+gender = 1 if gender == "Male" else 0
+SeniorCitizen = 1 if SeniorCitizen == "Yes" else 0
+Partner = 1 if Partner == "Yes" else 0
+Dependents = 1 if Dependents == "Yes" else 0
 
-tenure = st.sidebar.slider("Tenure", 0, 72, 12)
-monthly = st.sidebar.slider("Monthly Charges", 20, 150, 70)
-total = st.sidebar.slider("Total Charges", 0, 9000, 1500) # This will be the 'total charges' float
+# Base input dictionary
+input_dict = {
+    'gender': gender,
+    'SeniorCitizen': SeniorCitizen,
+    'Partner': Partner,
+    'Dependents': Dependents,
+    'tenure': tenure,
+    'MonthlyCharges': MonthlyCharges,
+    'TotalCharges': TotalCharges
+}
 
-internet = st.sidebar.selectbox("Internet Service", ["DSL", "Fiber optic", "No"])
-contract = st.sidebar.selectbox("Contract", ["Month-to-month", "One year", "Two year"])
-payment = st.sidebar.selectbox("Payment Method", ["Electronic check", "Mailed check", "Bank transfer (automatic)", "Credit card (automatic)"])
+# One-hot style categorical handling
+for col in columns:
+    if col.startswith("InternetService_"):
+        input_dict[col] = 1 if col == f"InternetService_{InternetService}" else 0
+    if col.startswith("Contract_"):
+        input_dict[col] = 1 if col == f"Contract_{Contract}" else 0
+    if col.startswith("PaymentMethod_"):
+        input_dict[col] = 1 if col == f"PaymentMethod_{PaymentMethod}" else 0
 
-def prepare_input_data(gender, senior, partner, dependents, tenure, monthly, total, internet, contract, payment):
-    input_dict = {
-        'gender_male': 1 if gender == 'Male' else 0,
-        'SeniorCitizen_1': 1 if senior == 'Yes' else 0,
-        'Partner_Yes': 1 if partner == 'Yes' else 0,
-        'Dependents_Yes': 1 if dependents == 'Yes' else 0,
-        'tenure': tenure,
-        'PhoneService_Yes': 1, # Assuming phone service is generally 'Yes' for simplicity in app
-        'MultipleLines_No phone service': 0, # Assuming not 'No phone service'
-        'MultipleLines_Yes': 0, # Assuming 'No' for simplicity
-        'InternetService_Fiber optic': 1 if internet == 'Fiber optic' else 0,
-        'InternetService_No': 1 if internet == 'No' else 0,
-        'OnlineSecurity_No internet service': 1 if internet == 'No' else 0,
-        'OnlineSecurity_Yes': 0, # Assuming 'No' for simplicity
-        'OnlineBackup_No internet service': 1 if internet == 'No' else 0,
-        'OnlineBackup_Yes': 0, # Assuming 'No' for simplicity
-        'DeviceProtection_No internet service': 1 if internet == 'No' else 0,
-        'DeviceProtection_Yes': 0, # Assuming 'No' for simplicity
-        'TechSupport_No internet service': 1 if internet == 'No' else 0,
-        'TechSupport_Yes': 0, # Assuming 'No' for simplicity
-        'StreamingTV_No internet service': 1 if internet == 'No' else 0,
-        'StreamingTV_Yes': 0, # Assuming 'No' for simplicity
-        'StreamingMovies_No internet service': 1 if internet == 'No' else 0,
-        'StreamingMovies_Yes': 0, # Assuming 'No' for simplicity
-        'Contract_One_year': 1 if contract == 'One year' else 0,
-        'Contract_Two_year': 1 if contract == 'Two year' else 0,
-        'PaperlessBilling_Yes': 0, # Assuming 'No' for simplicity
-        'PaymentMethod_Credit_card_(automatic)': 1 if payment == 'Credit card (automatic)' else 0,
-        'PaymentMethod_Electronic_check': 1 if payment == 'Electronic check' else 0,
-        'PaymentMethod_Mailed_check': 1 if payment == 'Mailed check' else 0,
-        'MonthlyCharges': monthly,
-        'total charges': total, # This corresponds to the 'total charges' float column
-        'AvgChargePerMonth': total / (tenure + 1) if tenure > 0 else 0,
-        'Tenure_MonthlyCharges_Interaction': tenure * monthly
-    }
+# Create dataframe in correct order
+input_df = pd.DataFrame([input_dict])
+input_df = input_df.reindex(columns=columns, fill_value=0)
 
-    # Create a DataFrame from the input and reindex to match the model's training columns
-    input_df = pd.DataFrame([input_dict])
-    # Align columns, filling missing with 0 (for categorical features not selected)
-    input_aligned = input_df.reindex(columns=model_columns, fill_value=0)
+# Scale
+input_scaled = scaler.transform(input_df)
 
-    return input_aligned
-
-if st.button("Predict"):    
-    input_data = prepare_input_data(
-        gender, senior, partner, dependents, tenure, monthly, total,
-        internet, contract, payment
-    )
-
-    input_scaled = scaler.transform(input_data)
-
-    pred = model.predict(input_scaled)[0]
+# ---------------- PREDICT ----------------
+if st.button("🔍 Predict Churn"):
+    prediction = model.predict(input_scaled)[0]
     prob = model.predict_proba(input_scaled)[0][1]
 
-    if pred == 1:
-        st.error(f"❌ Customer WILL CHURN (Probability: {prob:.2%})")
+    if prediction == 1:
+        st.error(f"⚠ Customer likely to CHURN — Probability: {prob:.2%}")
     else:
-        st.success(f"✅ Customer WILL STAY (Probability: {(1-prob):.2%})")
+        st.success(f"✅ Customer likely to STAY — Probability: {1-prob:.2%}")
